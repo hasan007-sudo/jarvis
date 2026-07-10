@@ -2,6 +2,8 @@
 name = "jarvis-assistant"
 version = "0.1.0"
 description = "Voice-driven orchestrator that delegates tasks to Claude and Codex worker agents"
+license = { text = "MIT" }
+authors = [{ name = "Mohammed Hasan" }]
 requires-python = ">=3.11"
 dependencies = [
     "claude-agent-sdk>=0.1.0",

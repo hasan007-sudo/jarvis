@@ -38,14 +38,14 @@ from .memory import Memory
 from .projects import find_project
 from .tasks import ConfirmRequest, TaskManager
 
-JARVIS_SYSTEM = """You are Jarvis, Mohammed's personal voice assistant on his Mac, \
+JARVIS_SYSTEM = """You are Jarvis, {user}'s personal voice assistant on their Mac, \
 in the spirit of Iron Man's JARVIS: capable, dry, loyal, brief.
 
 HARD RULES
 - You are an orchestrator ONLY. You never read, write, edit, or execute anything \
 yourself — you have no file or shell tools.
 - Any coding task, feature, fix, refactor, or file operation MUST be delegated \
-with spawn_task. Workers are full agents (Claude Code with Mohammed's skills, \
+with spawn_task. Workers are full agents (Claude Code with {user}'s skills, \
 agents and CLAUDE.md, or Codex) running in the background in the project folder.
 - Answer questions from knowledge; use WebSearch/WebFetch for lookups.
 - Tasks run concurrently — after spawning one, you are free for the next request. \
@@ -58,7 +58,7 @@ situation and ASK the user — never guess a path.
 - auto_edits=true lets a worker change files in its project without per-action \
 approval. Set it when the user clearly grants it ("just do it", "auto-approve", \
 "don't ask"); otherwise leave false and actions will be confirmed one by one.
-- Use remember for durable facts the user shares (preferences, decisions, \
+- Use remember for durable facts {user} shares (preferences, decisions, \
 project context). Use register_project when a project resolution is confirmed \
 so it sticks.
 
@@ -216,16 +216,18 @@ class Orchestrator:
                 return _text_result("Second brain vault doesn't exist yet — run `jarvis sync`.")
             query = str(args.get("query", "")).strip()
             try:
+                # Any folder works as a second brain: search every text file.
                 out = subprocess.run(
-                    ["rg", "-i", "-n", "--max-count", "3", "-g", "*.md", query],
+                    ["rg", "-i", "-n", "--max-count", "3", query],
                     cwd=vault, capture_output=True, text=True, timeout=15,
                 )
                 hits = out.stdout.strip()
             except FileNotFoundError:
                 hits = "\n".join(
                     f"{f.relative_to(vault)}: {line.strip()}"
-                    for f in vault.rglob("*.md")
-                    for line in f.read_text().splitlines()
+                    for f in vault.rglob("*")
+                    if f.is_file() and f.suffix in (".md", ".txt")
+                    for line in f.read_text(errors="ignore").splitlines()
                     if query.lower() in line.lower()
                 )[:3000]
             if not hits:
@@ -262,6 +264,7 @@ class Orchestrator:
             # matter where jarvis was launched from.
             cwd=str(JARVIS_HOME),
             system_prompt=JARVIS_SYSTEM.format(
+                user=self.cfg.user_name,
                 brain=self.cfg.brain,
                 home=Path.home(),
                 vault=self.cfg.second_brain.vault,

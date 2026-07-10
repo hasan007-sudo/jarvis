@@ -12,6 +12,7 @@ JARVIS_HOME = Path(os.environ.get("JARVIS_HOME", str(Path.home() / ".jarvis")))
 CONFIG_PATH = JARVIS_HOME / "config.yaml"
 
 DEFAULT_CONFIG: dict = {
+    "user_name": "",  # how Jarvis addresses you; defaults to your OS username
     "brain": "claude",
     "codex_bin": "codex",
     "search_roots": [
@@ -62,6 +63,7 @@ class SecondBrainConfig:
 
 @dataclass
 class Config:
+    user_name: str = ""
     brain: str = "claude"
     codex_bin: str = "codex"
     search_roots: list[Path] = field(default_factory=list)
@@ -79,7 +81,10 @@ class Config:
         merged = {**DEFAULT_CONFIG, **raw}
         v = {**DEFAULT_CONFIG["voice"], **(merged.get("voice") or {})}
         sb = {**DEFAULT_CONFIG["second_brain"], **(merged.get("second_brain") or {})}
+        import getpass
+
         return cls(
+            user_name=merged.get("user_name") or getpass.getuser(),
             brain=merged.get("brain", "claude"),
             codex_bin=merged.get("codex_bin", "codex"),
             search_roots=[Path(p).expanduser() for p in merged.get("search_roots", [])],

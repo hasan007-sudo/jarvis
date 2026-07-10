@@ -139,20 +139,30 @@ def _daemon() -> None:
         print("\n[daemon] stopped.")
 
 
+def _remove_legacy_agents(*labels: str) -> None:
+    """Unload/remove launchd agents from older installs (renamed labels)."""
+    for label in labels:
+        plist = Path.home() / f"Library/LaunchAgents/{label}.plist"
+        if plist.exists():
+            subprocess.run(["launchctl", "unload", str(plist)], capture_output=True)
+            plist.unlink()
+
+
 def _install_daemon() -> None:
     import shutil
 
+    _remove_legacy_agents("com.mohammedhasan.jarvis-daemon")
     jarvis_bin = shutil.which("jarvis") or sys.argv[0]
     claude_dir = str(Path(shutil.which("claude") or "~/.local/bin/claude").expanduser().parent)
     path_env = f"{claude_dir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
     logs = JARVIS_HOME / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    plist = Path.home() / "Library/LaunchAgents/com.mohammedhasan.jarvis-daemon.plist"
+    plist = Path.home() / "Library/LaunchAgents/com.jarvis.daemon.plist"
     plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.mohammedhasan.jarvis-daemon</string>
+    <key>Label</key><string>com.jarvis.daemon</string>
     <key>ProgramArguments</key>
     <array><string>{jarvis_bin}</string><string>daemon</string></array>
     <key>RunAtLoad</key><true/>
@@ -178,15 +188,16 @@ def _install_daemon() -> None:
 def _install_sync() -> None:
     import shutil
 
+    _remove_legacy_agents("com.mohammedhasan.jarvis-sync")
     jarvis_bin = shutil.which("jarvis") or sys.argv[0]
     logs = JARVIS_HOME / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    plist = Path.home() / "Library/LaunchAgents/com.mohammedhasan.jarvis-sync.plist"
+    plist = Path.home() / "Library/LaunchAgents/com.jarvis.sync.plist"
     plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.mohammedhasan.jarvis-sync</string>
+    <key>Label</key><string>com.jarvis.sync</string>
     <key>ProgramArguments</key>
     <array><string>{jarvis_bin}</string><string>sync</string></array>
     <key>StartCalendarInterval</key>
