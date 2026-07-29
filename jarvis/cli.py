@@ -43,6 +43,15 @@ def main() -> None:
     project.add_argument("action", nargs="?", default="list", choices=["list", "add"])
     project.add_argument("name", nargs="?")
     project.add_argument("path", nargs="?")
+    notes = sub.add_parser("notes", help="Notion second brain: query, ask")
+    notes_sub = notes.add_subparsers(dest="notes_action")
+    nq = notes_sub.add_parser("query", help="ranked hybrid search over your notes")
+    nq.add_argument("text")
+    nq.add_argument("--json", action="store_true", help="machine-readable output for agents")
+    nq.add_argument("-k", type=int, default=8, help="max results")
+    na = notes_sub.add_parser("ask", help="answer a question from your notes via Claude/Codex")
+    na.add_argument("text")
+    na.add_argument("-k", type=int, default=8, help="notes to retrieve as context")
 
     args = parser.parse_args()
     command = args.command or "chat"
@@ -71,6 +80,8 @@ def main() -> None:
         _install_daemon()
     elif command == "stop":
         _stop()
+    elif command == "notes":
+        _notes(args)
     elif command == "ui":
         port = Config.load().dashboard_port
         subprocess.run(["open", f"http://127.0.0.1:{port}"])
@@ -158,6 +169,19 @@ def _sync(max_sessions: int | None) -> None:
     cfg = Config.load()
     brain = SecondBrain(cfg)
     print(brain.sync(max_sessions=max_sessions or cfg.second_brain.batch))
+
+
+def _notes(args) -> None:
+    from .notion_memory import command as nm
+
+    cfg = Config.load()
+    action = getattr(args, "notes_action", None)
+    if action == "query":
+        print(nm.notes_query(cfg, args.text, args.json, args.k))
+    elif action == "ask":
+        print(nm.notes_ask(cfg, args.text, args.k))
+    else:
+        print("usage: jarvis notes [query <text>|ask <text>]")
 
 
 def _daemon() -> None:

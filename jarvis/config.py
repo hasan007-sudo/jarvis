@@ -39,6 +39,11 @@ DEFAULT_CONFIG: dict = {
         "batch": 12,
         "commit": True,
     },
+    "notion_memory": {
+        "vault": "~/Github/Personal/notion-brain",
+        "token_env": "NOTION_TOKEN",
+        "batch": 100,
+    },
 }
 
 DEFAULT_MODELS_CONFIG: dict = {
@@ -101,6 +106,13 @@ class SecondBrainConfig:
 
 
 @dataclass
+class NotionMemoryConfig:
+    vault: Path = Path.home() / "Github/Personal/notion-brain"
+    token_env: str = "NOTION_TOKEN"
+    batch: int = 100
+
+
+@dataclass
 class ClaudeModelConfig:
     model: str
 
@@ -138,6 +150,7 @@ class Config:
     projects: dict[str, Path] = field(default_factory=dict)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     second_brain: SecondBrainConfig = field(default_factory=SecondBrainConfig)
+    notion_memory: NotionMemoryConfig = field(default_factory=NotionMemoryConfig)
     models: ModelsConfig = field(default_factory=lambda: _default_models())
     dashboard_port: int = 8787
 
@@ -151,6 +164,7 @@ class Config:
         models = _load_models(legacy_brain=raw.get("brain"))
         v = {**DEFAULT_CONFIG["voice"], **(merged.get("voice") or {})}
         sb = {**DEFAULT_CONFIG["second_brain"], **(merged.get("second_brain") or {})}
+        nm = {**DEFAULT_CONFIG["notion_memory"], **(merged.get("notion_memory") or {})}
         import getpass
 
         return cls(
@@ -179,6 +193,11 @@ class Config:
                 vault=Path(sb["vault"]).expanduser(),
                 batch=int(sb["batch"]),
                 commit=bool(sb["commit"]),
+            ),
+            notion_memory=NotionMemoryConfig(
+                vault=Path(nm["vault"]).expanduser(),
+                token_env=str(nm["token_env"]),
+                batch=int(nm["batch"]),
             ),
             models=models,
         )
