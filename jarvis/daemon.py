@@ -27,7 +27,7 @@ from collections import deque
 
 from .config import Config
 from .dashboard import start_dashboard
-from .orchestrator import Orchestrator
+from .orchestration import create_orchestrator
 
 LISTEN_CHIME = "/System/Library/Sounds/Pop.aiff"    # mic open (hotkey)
 ACK_CHIME = "/System/Library/Sounds/Morse.aiff"     # heard you, thinking
@@ -128,7 +128,7 @@ async def run_daemon() -> None:
     cfg = Config.load()
     io = HotkeyVoiceIO(cfg)
     io.start_hotkey(asyncio.get_running_loop())
-    orch = Orchestrator(cfg, io)
+    orch = create_orchestrator(cfg, io)
     start_dashboard(orch, io, cfg.dashboard_port)
     print(
         f"[daemon] up — hotkey {cfg.voice.hotkey}, "

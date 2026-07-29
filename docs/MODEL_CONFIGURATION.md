@@ -1,0 +1,176 @@
+# Model configuration
+
+Jarvis uses Claude and Codex in three distinct roles:
+
+```text
+User ↔ Jarvis orchestrator (Claude Agent SDK or Codex app-server)
+              ├─ delegated task → brain provider (Claude or Codex)
+              └─ history distillation → sync provider (Claude or Codex)
+```
+
+The orchestrator, delegated workers, and history sync are independently
+configurable in `~/.jarvis/models.yaml`. Claude and Codex use separate native
+adapters; Codex is not run inside Claude Agent SDK.
+
+## Quick setup
+
+Install and authenticate at least the provider selected for each role:
+
+```sh
+claude login
+codex login
+```
+
+Jarvis creates `~/.jarvis/models.yaml` on first run. The default configuration
+uses Codex GPT-5.5 for both delegated work and history sync:
+
+```yaml
+orchestrator:
+  provider: codex
+  claude:
+    model: sonnet
+  codex:
+    model: gpt-5.5
+    sandbox: read-only
+    ephemeral: false
+    skip_git_repo_check: true
+    ignore_user_config: false
+    ignore_rules: false
+
+brain:
+  provider: codex
+  claude:
+    model: sonnet
+  codex:
+    model: gpt-5.5
+    sandbox: workspace-write
+    ephemeral: false
+    skip_git_repo_check: true
+    ignore_user_config: false
+    ignore_rules: false
+
+sync:
+  provider: codex
+  claude:
+    model: haiku
+  codex:
+    model: gpt-5.5
+    sandbox: read-only
+    ephemeral: true
+    skip_git_repo_check: true
+    ignore_user_config: true
+    ignore_rules: true
+```
+
+Model availability depends on the user's Claude or Codex account. Replace a
+model name with one available to that account if the provider rejects it.
+
+## Switching providers
+
+To switch the main conversation to Codex:
+
+```sh
+jarvis orchestrator codex
+jarvis install-daemon
+```
+
+The daemon must restart because it keeps one long-lived provider session.
+
+To make Codex the default delegated worker:
+
+```yaml
+brain:
+  provider: codex
+```
+
+The equivalent CLI command is `jarvis brain codex`. It updates
+`brain.provider` in `models.yaml`.
+
+To use Claude for conversation-history sync:
+
+```yaml
+sync:
+  provider: claude
+```
+
+Provider choices are independent. Switching a provider does not erase either
+provider's saved model settings.
+
+For a one-subscription setup, switch all three roles together:
+
+```sh
+jarvis provider codex   # or: jarvis provider claude
+```
+
+## One-subscription installations
+
+Codex-only users install the base package plus voice support. Claude Agent SDK
+is not imported or required:
+
+```sh
+uv tool install "jarvis-assistant[voice] @ git+https://github.com/hasan007-sudo/jarvis"
+```
+
+Claude users add the optional Claude adapter:
+
+```sh
+uv tool install "jarvis-assistant[voice,claude] @ git+https://github.com/hasan007-sudo/jarvis"
+```
+
+The installer detects the available CLI. On a fresh installation it configures
+all three roles for Codex when Codex is installed, otherwise for Claude. It
+does not overwrite an existing `models.yaml` during upgrades.
+
+## Codex options
+
+- `model`: passed to `codex exec --model`.
+- `sandbox`: `read-only`, `workspace-write`, or `danger-full-access`.
+- `ephemeral`: adds `--ephemeral`, preventing the run from being saved as a
+  new Codex conversation. Keep this enabled for sync to avoid resyncing sync
+  sessions.
+- `skip_git_repo_check`: adds `--skip-git-repo-check`. This allows registered
+  projects or second-brain vaults that are not Git repositories.
+- `ignore_user_config`: adds `--ignore-user-config`. Sync enables this so a
+  user's plugins, MCP servers, and other Codex customizations cannot interfere
+  with a non-interactive distillation run. Codex authentication is preserved.
+- `ignore_rules`: adds `--ignore-rules`. Sync does not need repository agent
+  instructions because its prompt has one narrowly defined output format.
+
+The safe defaults deliberately differ: delegated workers receive
+`workspace-write` and the user's normal Codex setup, while sync is read-only,
+ephemeral, and isolated from unrelated customizations.
+
+## Claude options
+
+`model` is passed to Claude Agent SDK for delegated workers and to
+`claude -p --model` for sync. Aliases such as `sonnet` and `haiku` may resolve
+to newer versions over time. Use a full model identifier when reproducibility
+is more important than automatically following the latest alias.
+
+## Codex orchestrator boundary
+
+The Codex adapter uses the official local `codex app-server --stdio` protocol:
+one process, one conversation thread, streamed turns, and client-handled Jarvis
+tools. The orchestrator starts with no coding environment attached, read-only
+sandboxing, no approval escalation, and an empty capability-root selection. It
+uses `~/.jarvis/codex-home` for clean runtime configuration and symlinks only
+the existing Codex `auth.json`; user MCP servers and plugins are not loaded.
+Codex dynamic tools are currently an experimental app-server capability, so
+all protocol handling is isolated in `jarvis/orchestration/codex.py`.
+
+## Other configuration
+
+`~/.jarvis/config.yaml` continues to hold non-model settings, including
+`codex_bin`, voice configuration, projects, and the second-brain vault.
+
+Existing installations with `brain` in `config.yaml` are migrated safely:
+when `models.yaml` is first created, that value seeds `brain.provider`. Future
+`jarvis brain` commands update `models.yaml`.
+
+## Troubleshooting
+
+- `command not found`: install and authenticate the selected provider CLI.
+- `model not found` or access errors: choose a model enabled for that account.
+- invalid provider or sandbox: Jarvis reports the invalid key and the path to
+  `models.yaml` during startup.
+- sync creates new Codex sessions: ensure `sync.codex.ephemeral` is `true`.

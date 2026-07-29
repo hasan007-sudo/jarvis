@@ -29,7 +29,19 @@ if ! command -v uv >/dev/null; then
 fi
 
 echo "-- installing jarvis..."
-uv tool install --force "jarvis-assistant[voice] @ git+https://github.com/hasan007-sudo/jarvis"
+EXTRAS="voice"
+if command -v claude >/dev/null; then
+  EXTRAS="voice,claude"
+fi
+uv tool install --force "jarvis-assistant[$EXTRAS] @ git+https://github.com/hasan007-sudo/jarvis"
+
+if [[ ! -f "$HOME/.jarvis/models.yaml" ]]; then
+  if command -v codex >/dev/null; then
+    "$HOME/.local/bin/jarvis" provider codex
+  else
+    "$HOME/.local/bin/jarvis" provider claude
+  fi
+fi
 
 echo "-- setting up voice (whisper.cpp + models)..."
 "$HOME/.local/bin/jarvis" setup-voice
@@ -47,5 +59,5 @@ Try it:
 
 First daemon run: grant Microphone + Input Monitoring/Accessibility when
 macOS prompts (System Settings > Privacy & Security).
-Config: ~/.jarvis/config.yaml (second brain folder, hotkey, voices, models).
+Config: ~/.jarvis/config.yaml (app) and ~/.jarvis/models.yaml (AI providers/models).
 EOF

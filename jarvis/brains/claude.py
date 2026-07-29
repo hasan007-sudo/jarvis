@@ -64,6 +64,7 @@ class ClaudeWorker:
 
         options = ClaudeAgentOptions(
             cwd=str(task.project),
+            model=self.cfg.models.brain.claude.model,
             setting_sources=["user", "project"],
             system_prompt={
                 "type": "preset",

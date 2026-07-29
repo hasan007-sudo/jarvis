@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -30,9 +31,14 @@ def main() -> None:
     sub.add_parser("install-sync", help="install the daily second-brain sync (launchd)")
     sub.add_parser("daemon", help="run the always-on hotkey voice daemon (foreground)")
     sub.add_parser("install-daemon", help="install the daemon as a launchd service (starts at login)")
+    sub.add_parser("stop", help="stop the background daemon and dashboard")
     sub.add_parser("ui", help="open the Jarvis status dashboard in the browser")
     brain = sub.add_parser("brain", help="show or set the default worker platform")
     brain.add_argument("name", nargs="?", choices=["claude", "codex"])
+    orchestrator = sub.add_parser("orchestrator", help="show or set the conversation provider")
+    orchestrator.add_argument("name", nargs="?", choices=["claude", "codex"])
+    provider = sub.add_parser("provider", help="set orchestrator, worker, and sync together")
+    provider.add_argument("name", choices=["claude", "codex"])
     project = sub.add_parser("project", help="list or register projects")
     project.add_argument("action", nargs="?", default="list", choices=["list", "add"])
     project.add_argument("name", nargs="?")
@@ -49,6 +55,10 @@ def main() -> None:
         _setup_voice()
     elif command == "brain":
         _brain(args.name)
+    elif command == "orchestrator":
+        _orchestrator(args.name)
+    elif command == "provider":
+        _provider(args.name)
     elif command == "project":
         _project(args)
     elif command == "sync":
@@ -59,6 +69,8 @@ def main() -> None:
         _daemon()
     elif command == "install-daemon":
         _install_daemon()
+    elif command == "stop":
+        _stop()
     elif command == "ui":
         port = Config.load().dashboard_port
         subprocess.run(["open", f"http://127.0.0.1:{port}"])
@@ -66,7 +78,7 @@ def main() -> None:
 
 def _converse(mode: str) -> None:
     from .io import ConsoleIO, VoiceIO
-    from .orchestrator import Orchestrator
+    from .orchestration import create_orchestrator
 
     cfg = Config.load()
     if mode == "talk":
@@ -77,7 +89,7 @@ def _converse(mode: str) -> None:
     else:
         io = ConsoleIO()
     try:
-        asyncio.run(Orchestrator(cfg, io).run())
+        asyncio.run(create_orchestrator(cfg, io).run())
     except KeyboardInterrupt:
         print("\n[jarvis] interrupted.")
 
@@ -102,6 +114,24 @@ def _brain(name: str | None) -> None:
         return
     cfg.set_brain(name)
     print(f"Default worker platform set to {name}.")
+
+
+def _orchestrator(name: str | None) -> None:
+    cfg = Config.load()
+    if not name:
+        print(f"Conversation provider: {cfg.models.orchestrator.provider}")
+        return
+    cfg.set_orchestrator(name)
+    print(f"Conversation provider set to {name}. Restart a running daemon to apply it.")
+
+
+def _provider(name: str) -> None:
+    cfg = Config.load()
+    cfg.set_all_providers(name)
+    print(
+        f"Orchestrator, default worker, and sync provider set to {name}. "
+        "Restart a running daemon to apply it."
+    )
 
 
 def _project(args) -> None:
@@ -139,6 +169,21 @@ def _daemon() -> None:
         print("\n[daemon] stopped.")
 
 
+def _stop() -> None:
+    label = "com.jarvis.daemon"
+    target = f"gui/{os.getuid()}/{label}"
+    running = subprocess.run(
+        ["launchctl", "print", target], capture_output=True, text=True
+    )
+    if running.returncode != 0:
+        print("Jarvis daemon and dashboard are already stopped.")
+        return
+
+    plist = Path.home() / f"Library/LaunchAgents/{label}.plist"
+    subprocess.run(["launchctl", "unload", str(plist)], check=True)
+    print("Jarvis daemon and dashboard stopped.")
+
+
 def _remove_legacy_agents(*labels: str) -> None:
     """Unload/remove launchd agents from older installs (renamed labels)."""
     for label in labels:
@@ -153,8 +198,14 @@ def _install_daemon() -> None:
 
     _remove_legacy_agents("com.mohammedhasan.jarvis-daemon")
     jarvis_bin = shutil.which("jarvis") or sys.argv[0]
-    claude_dir = str(Path(shutil.which("claude") or "~/.local/bin/claude").expanduser().parent)
-    path_env = f"{claude_dir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    provider_dirs = {
+        str(Path(binary).parent)
+        for name in ("claude", "codex")
+        if (binary := shutil.which(name))
+    }
+    path_env = ":".join(sorted(provider_dirs) + [
+        "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"
+    ])
     logs = JARVIS_HOME / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     plist = Path.home() / "Library/LaunchAgents/com.jarvis.daemon.plist"

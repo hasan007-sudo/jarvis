@@ -8,7 +8,7 @@ voice pipeline.
 
 ```
 mic ─▶ hotkey (⌃⌥J) ─▶ VAD + whisper.cpp (local STT)
-        └▶ Jarvis (orchestrator, delegate-only — no file/shell access)
+        └▶ Jarvis (Claude SDK or Codex app-server orchestrator)
              ├── spawn_task ─▶ worker agents per task (claude | codex), concurrent
              │                  └── policy: allow / voice-confirm / hard-deny
              ├── WebSearch lookups · persistent memory · session resume
@@ -18,10 +18,9 @@ speaker ◀── macOS `say` (TTS)          dashboard ◀── http://127.0.0.
 
 ## Highlights
 
-- **Orchestrator-only by construction** — the Jarvis session has zero file or
-  shell tools (enforced via a permission callback, not just prompting). Every
-  task spawns a separate worker agent; ask for three features in three repos
-  and they run concurrently.
+- **Provider-independent orchestration** — use either a Claude subscription
+  through Claude Agent SDK or a Codex subscription through Codex app-server.
+  Every implementation task is delegated to a separate worker agent.
 - **Your existing AI setup, reused** — Claude workers load your real
   `~/.claude` skills, agents, CLAUDE.md, and MCP servers; Codex workers run
   `codex exec` in its sandbox with your `~/.codex` config. Switch platforms by
@@ -52,8 +51,10 @@ Prerequisites: macOS + Homebrew, and at least one of
 curl -fsSL https://raw.githubusercontent.com/hasan007-sudo/jarvis/main/install.sh | bash
 ```
 
-Or manually: `uv tool install "jarvis-assistant[voice] @ git+https://github.com/hasan007-sudo/jarvis"`
-then `jarvis setup-voice`.
+Or manually, for Codex-only use:
+`uv tool install "jarvis-assistant[voice] @ git+https://github.com/hasan007-sudo/jarvis"`.
+Add the `claude` extra for Claude support: `[voice,claude]`. Then run
+`jarvis setup-voice`.
 
 ## Usage
 
@@ -62,10 +63,13 @@ jarvis chat             # text mode
 jarvis talk             # push-to-talk voice (terminal)
 jarvis daemon           # always-on hotkey voice (foreground)
 jarvis install-daemon   # daemon via launchd — starts at login, auto-restarts
+jarvis stop             # stop the background daemon and dashboard
 jarvis ui               # live dashboard (state, tasks, approvals, transcript)
 jarvis sync [--max N]   # distill past sessions into the second brain
 jarvis install-sync     # nightly sync at 21:30
 jarvis brain codex      # default worker platform
+jarvis orchestrator codex # main conversation provider (restart daemon after changing)
+jarvis provider codex   # set orchestrator, worker, and sync together
 jarvis project add api ~/code/api
 jarvis status           # task history
 ```
@@ -80,11 +84,63 @@ One-time macOS grants for the daemon: Microphone + Input
 Monitoring/Accessibility for the resolved python binary
 (`readlink -f ~/.local/share/uv/tools/jarvis-assistant/bin/python3`).
 
-## Configuration — `~/.jarvis/config.yaml`
+## Configuration
+
+Jarvis keeps application settings and AI model settings separate:
+
+- `~/.jarvis/config.yaml` — voice, projects, second-brain vault, and binaries
+- `~/.jarvis/models.yaml` — independent worker and conversation-sync providers
+
+Change only the relevant `provider` line to switch between Claude and Codex;
+each provider keeps its own model and CLI options.
+
+```yaml
+# ~/.jarvis/models.yaml
+orchestrator:
+  provider: codex             # claude | codex
+  claude:
+    model: sonnet
+  codex:
+    model: gpt-5.5
+    sandbox: read-only
+    ephemeral: false
+    skip_git_repo_check: true
+    ignore_user_config: false
+    ignore_rules: false
+
+brain:
+  provider: codex             # claude | codex
+  claude:
+    model: sonnet
+  codex:
+    model: gpt-5.5
+    sandbox: workspace-write
+    ephemeral: false
+    skip_git_repo_check: true
+    ignore_user_config: false
+    ignore_rules: false
+
+sync:
+  provider: codex             # independent of brain.provider
+  claude:
+    model: haiku
+  codex:
+    model: gpt-5.5
+    sandbox: read-only
+    ephemeral: true
+    skip_git_repo_check: true
+    ignore_user_config: true
+    ignore_rules: true
+```
+
+`orchestrator` selects the main conversation provider, `brain` selects the
+default delegated worker, and `sync` selects the history-distillation model.
+All three are independent. See [Model configuration](docs/MODEL_CONFIGURATION.md).
+
+### Application settings — `~/.jarvis/config.yaml`
 
 ```yaml
 user_name: Tony             # how Jarvis addresses you
-brain: claude               # default worker: claude | codex
 second_brain:
   vault: ~/notes            # ANY folder — Jarvis searches it progressively
 voice:

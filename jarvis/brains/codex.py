@@ -22,6 +22,7 @@ from . import TaskResult
 class CodexWorker:
     def __init__(self, cfg: Config):
         self.bin = cfg.codex_bin
+        self.options = cfg.models.brain.codex
 
     async def run(self, task, on_event, gate) -> TaskResult:
         if not task.auto_edits:
@@ -36,13 +37,22 @@ class CodexWorker:
             self.bin,
             "exec",
             "--json",
+            "--model",
+            self.options.model,
             "--cd",
             str(task.project),
             "--sandbox",
-            "workspace-write",
-            "--skip-git-repo-check",
-            task.instructions,
+            self.options.sandbox,
         ]
+        if self.options.ephemeral:
+            cmd.append("--ephemeral")
+        if self.options.skip_git_repo_check:
+            cmd.append("--skip-git-repo-check")
+        if self.options.ignore_user_config:
+            cmd.append("--ignore-user-config")
+        if self.options.ignore_rules:
+            cmd.append("--ignore-rules")
+        cmd.append(task.instructions)
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

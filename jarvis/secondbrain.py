@@ -2,7 +2,7 @@
 
 Design (Karpathy LLM-wiki + OpenClaw memory pattern):
 - Raw transcripts stay immutable in ~/.claude/projects and ~/.codex/sessions.
-- Each session is distilled ONCE (via `claude -p`, haiku) into a permanent
+- Each session is distilled ONCE (via the configured sync provider) into a permanent
   note: TL;DR, decisions, problems & solutions, questions, follow-ups.
 - Mechanical compilation layers on top: per-project wiki pages, daily
   digests, and INDEX.md for progressive disclosure by agents.
@@ -14,12 +14,13 @@ Call flow:
       ├─ ensure_vault()          # scaffold + git init, idempotent
       ├─ discover()              # new session files vs state.json
       ├─ parse_claude/_codex()   # transcript -> (role, text) turns
-      ├─ distill()               # claude -p haiku -> markdown note
+      ├─ distill()               # configured Claude/Codex model -> markdown note
       └─ compile_()              # project pages, dailies, INDEX, git commit
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -31,6 +32,7 @@ from .config import Config
 
 CLAUDE_PROJECTS = Path.home() / ".claude/projects"
 CODEX_SESSIONS = Path.home() / ".codex/sessions"
+STATE_VERSION = 2
 
 DISTILL_PROMPT = """You are distilling a coding-assistant session transcript into a permanent \
 note for a personal knowledge vault (a "second brain"). It will be read later by the user \
@@ -103,7 +105,7 @@ class SecondBrain:
     def _state(self) -> dict:
         if self.state_path.exists():
             return json.loads(self.state_path.read_text())
-        return {"processed": {}}
+        return {"version": STATE_VERSION, "processed": {}}
 
     def _save_state(self, state: dict) -> None:
         self.state_path.write_text(json.dumps(state, indent=1))
@@ -112,6 +114,10 @@ class SecondBrain:
     def sync(self, max_sessions: int = 12, log=print) -> str:
         self.ensure_vault()
         state = self._state()
+        if state.get("version") != STATE_VERSION:
+            self._reset_generated_notes()
+            state = {"version": STATE_VERSION, "processed": {}}
+            log("Reset legacy distillation state; all sessions will be re-distilled.")
         candidates = self.discover(state)
         log(f"{len(candidates)} unprocessed session file(s); distilling up to {max_sessions}.")
 
@@ -120,19 +126,37 @@ class SecondBrain:
             if done >= max_sessions:
                 break
             key = str(path)
+            fingerprint = _fingerprint(path)
             doc = parse_claude(path) if source == "claude" else parse_codex(path)
             if doc is None or self._should_skip(doc):
-                state["processed"][key] = {"status": "skipped"}
+                state["processed"][key] = {
+                    "status": "skipped",
+                    "filename": path.name,
+                    "fingerprint": fingerprint,
+                }
                 skipped += 1
                 continue
             log(f"  distilling {source}:{doc.project} {doc.date} ({doc.sid[:8]})")
             note = self.distill(doc)
             if note is None:
-                state["processed"][key] = {"status": "failed"}
+                state["processed"][key] = {
+                    "status": "failed",
+                    "filename": path.name,
+                    "fingerprint": fingerprint,
+                }
                 skipped += 1
                 continue
-            rel = self._write_note(doc, note)
-            state["processed"][key] = {"status": "done", "note": str(rel)}
+            previous = state["processed"].get(key, {})
+            rel = self._write_note(doc, note, fingerprint)
+            previous_note = previous.get("note")
+            if previous_note and previous_note != str(rel):
+                (self.vault / previous_note).unlink(missing_ok=True)
+            state["processed"][key] = {
+                "status": "done",
+                "filename": path.name,
+                "fingerprint": fingerprint,
+                "note": str(rel),
+            }
             touched_projects.add(doc.project)
             touched_dates.add(doc.date)
             done += 1
@@ -159,7 +183,11 @@ class SecondBrain:
         def unprocessed(f: Path) -> bool:
             # "failed" stays eligible for retry on a later run; newest-first
             # ordering keeps permanent failures from crowding out new sessions.
-            return state["processed"].get(str(f), {}).get("status") not in ("done", "skipped")
+            entry = state["processed"].get(str(f), {})
+            return (
+                entry.get("status") not in ("done", "skipped")
+                or entry.get("fingerprint") != _fingerprint(f)
+            )
 
         if CLAUDE_PROJECTS.is_dir():
             for f in CLAUDE_PROJECTS.glob("*/*.jsonl"):
@@ -174,6 +202,16 @@ class SecondBrain:
         found.sort(reverse=True)  # newest first
         return [(f, source) for _, f, source in found]
 
+    def _reset_generated_notes(self) -> None:
+        for directory in (
+            self.vault / "sessions",
+            self.vault / "daily",
+            self.vault / "wiki/projects",
+        ):
+            for note in directory.rglob("*.md"):
+                note.unlink()
+        (self.vault / "INDEX.md").unlink(missing_ok=True)
+
     def _should_skip(self, doc: SessionDoc) -> bool:
         if "second-brain" in doc.cwd or "jarvis-test-sandbox" in doc.cwd:
             return True
@@ -184,9 +222,33 @@ class SecondBrain:
     # ---------------------------------------------------------- distill --
     def distill(self, doc: SessionDoc) -> dict | None:
         transcript = _condense(doc.turns)
+        sync = self.cfg.models.sync
+        if sync.provider == "claude":
+            cmd = ["claude", "-p", "--model", sync.claude.model, DISTILL_PROMPT]
+        else:
+            codex = sync.codex
+            cmd = [
+                self.cfg.codex_bin,
+                "exec",
+                "--model",
+                codex.model,
+                "--sandbox",
+                codex.sandbox,
+                "--cd",
+                str(self.vault),
+            ]
+            if codex.ephemeral:
+                cmd.append("--ephemeral")
+            if codex.skip_git_repo_check:
+                cmd.append("--skip-git-repo-check")
+            if codex.ignore_user_config:
+                cmd.append("--ignore-user-config")
+            if codex.ignore_rules:
+                cmd.append("--ignore-rules")
+            cmd.append(DISTILL_PROMPT)
         try:
             out = subprocess.run(
-                ["claude", "-p", "--model", "haiku", DISTILL_PROMPT],
+                cmd,
                 input=transcript,
                 capture_output=True,
                 text=True,
@@ -199,11 +261,11 @@ class SecondBrain:
             return None
         return _parse_distilled(out.stdout)
 
-    def _write_note(self, doc: SessionDoc, note: dict) -> Path:
+    def _write_note(self, doc: SessionDoc, note: dict, fingerprint: str) -> Path:
         year, month, day = doc.date.split("-")
         directory = self.vault / "sessions" / year / month
         directory.mkdir(parents=True, exist_ok=True)
-        fname = f"{day}-{doc.project}-{doc.source}-{doc.sid[:8]}.md"
+        fname = f"{day}-{doc.project}-{doc.source}-{doc.sid}-{fingerprint[:16]}.md"
         tags = ", ".join(["session"] + note["tags"])
         content = (
             f"---\n"
@@ -332,6 +394,16 @@ def parse_codex(path: Path) -> SessionDoc | None:
         date=_date(first_ts, path),
         turns=turns,
     )
+
+
+def _fingerprint(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.name.encode())
+    digest.update(b"\0")
+    with path.open("rb") as transcript:
+        for chunk in iter(lambda: transcript.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _jsonl(path: Path):
