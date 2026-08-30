@@ -6,15 +6,21 @@ import subprocess
 
 def run_llm(cfg, prompt: str, stdin: str) -> str:
     role = cfg.models.sync
+    if role.provider in ("opencode", "antigravity"):
+        from ..orchestration.external import run_sync
+
+        return run_sync(cfg, prompt, stdin)
     if role.provider == "claude":
         cmd = ["claude", "-p", "--model", role.claude.model, prompt]
-    else:
+    elif role.provider == "codex":
         c = role.codex
         cmd = [cfg.codex_bin, "exec", "--model", c.model,
                "--sandbox", "read-only", "--skip-git-repo-check"]
         if c.ephemeral:
             cmd.append("--ephemeral")
         cmd.append(prompt)
+    else:
+        raise ValueError(f"Unknown sync provider: {role.provider!r}")
     try:
         out = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=240)
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:

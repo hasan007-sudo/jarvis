@@ -2,24 +2,24 @@
 
 An open-source, always-on voice orchestrator for macOS — in the spirit of Iron
 Man's JARVIS. Press a hotkey from any app, speak, and Jarvis delegates real
-work to **worker agents running on the AI subscriptions you already have**
-(Claude Code and/or Codex CLI). No API keys, no per-token billing, fully local
-voice pipeline.
+work to worker agents through Claude Code and/or Codex CLI. Conversations can
+also use OpenCode. Authentication, quotas, and billing follow the selected
+provider and account; the voice pipeline runs locally.
 
 ```
 mic ─▶ hotkey (⌃⌥J) ─▶ VAD + whisper.cpp (local STT)
-        └▶ Jarvis (Claude SDK or Codex app-server orchestrator)
+        └▶ Jarvis (Claude SDK, Codex app-server, or OpenCode orchestrator)
              ├── spawn_task ─▶ worker agents per task (claude | codex), concurrent
              │                  └── policy: allow / voice-confirm / hard-deny
-             ├── WebSearch lookups · persistent memory · session resume
+             ├── Jarvis control tools · persistent memory · session context
              └── second brain: any folder of notes, searched progressively
 speaker ◀── macOS `say` (TTS)          dashboard ◀── http://127.0.0.1:8787
 ```
 
 ## Highlights
 
-- **Provider-independent orchestration** — use either a Claude subscription
-  through Claude Agent SDK or a Codex subscription through Codex app-server.
+- **Provider-independent orchestration** — native Claude Agent SDK, Codex
+  app-server, or OpenCode CLI adapters.
   Every implementation task is delegated to a separate worker agent.
 - **Your existing AI setup, reused** — Claude workers load your real
   `~/.claude` skills, agents, CLAUDE.md, and MCP servers; Codex workers run
@@ -56,6 +56,11 @@ Or manually, for Codex-only use:
 Add the `claude` extra for Claude support: `[voice,claude]`. Then run
 `jarvis setup-voice`.
 
+Setting up another Mac or handing work to another coding agent? Start with
+[Provider setup and handoff](docs/PROVIDER_SETUP.md). It covers installation
+provenance, authentication, exact model IDs, quota checks, daemon restarts, and
+the current AGY integration gate. AGY execution is not enabled yet.
+
 ## Usage
 
 ```sh
@@ -89,10 +94,12 @@ Monitoring/Accessibility for the resolved python binary
 Jarvis keeps application settings and AI model settings separate:
 
 - `~/.jarvis/config.yaml` — voice, projects, second-brain vault, and binaries
-- `~/.jarvis/models.yaml` — independent worker and conversation-sync providers
+- `~/.jarvis/models.yaml` — independent conversation, worker, and sync providers
 
-Change only the relevant `provider` line to switch between Claude and Codex;
-each provider keeps its own model and CLI options.
+Change only the relevant `provider` line; each provider keeps its own model
+settings. Conversations and sync support OpenCode as well as Claude/Codex.
+Workers remain Claude/Codex. Configure an explicit OpenCode model before
+selecting it; see [Provider setup](docs/PROVIDER_SETUP.md).
 
 ```yaml
 # ~/.jarvis/models.yaml

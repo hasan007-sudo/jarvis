@@ -15,6 +15,8 @@ MODELS_PATH = JARVIS_HOME / "models.yaml"
 DEFAULT_CONFIG: dict = {
     "user_name": "",  # how Jarvis addresses you; defaults to your OS username
     "codex_bin": "codex",
+    "opencode_bin": "opencode",
+    "agy_bin": "agy",
     "search_roots": [
         "~/Github",
         "~/Projects",
@@ -128,10 +130,18 @@ class CodexModelConfig:
 
 
 @dataclass
+class ExternalModelConfig:
+    model: str = ""
+    variant: str = ""
+
+
+@dataclass
 class ModelRoleConfig:
     provider: str
     claude: ClaudeModelConfig
     codex: CodexModelConfig
+    opencode: ExternalModelConfig = field(default_factory=ExternalModelConfig)
+    antigravity: ExternalModelConfig = field(default_factory=ExternalModelConfig)
 
 
 @dataclass
@@ -146,6 +156,8 @@ class Config:
     user_name: str = ""
     brain: str = "codex"
     codex_bin: str = "codex"
+    opencode_bin: str = "opencode"
+    agy_bin: str = "agy"
     search_roots: list[Path] = field(default_factory=list)
     projects: dict[str, Path] = field(default_factory=dict)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
@@ -171,6 +183,8 @@ class Config:
             user_name=merged.get("user_name") or getpass.getuser(),
             brain=models.brain.provider,
             codex_bin=merged.get("codex_bin", "codex"),
+            opencode_bin=merged.get("opencode_bin", "opencode"),
+            agy_bin=merged.get("agy_bin", "agy"),
             search_roots=[Path(p).expanduser() for p in merged.get("search_roots", [])],
             projects={
                 name: Path(p).expanduser()
@@ -217,10 +231,15 @@ class Config:
         MODELS_PATH.write_text(yaml.safe_dump(raw, sort_keys=False))
 
     def set_orchestrator(self, provider: str) -> None:
-        if provider not in ("claude", "codex"):
+        if provider not in ("claude", "codex", "opencode", "antigravity"):
             raise ValueError(
-                f"Unknown orchestrator: {provider!r} (expected 'claude' or 'codex')"
+                f"Unknown orchestrator: {provider!r}"
             )
+        if provider == "antigravity":
+            raise ValueError("Antigravity is unavailable: native CLI tool isolation is not verified")
+        if provider == "opencode":
+            if not self.models.orchestrator.opencode.model.strip():
+                raise ValueError(f"Set orchestrator.{provider}.model in {MODELS_PATH} first")
         self.models.orchestrator.provider = provider
         raw = yaml.safe_load(MODELS_PATH.read_text()) or {}
         raw.setdefault("orchestrator", {})["provider"] = provider
@@ -279,11 +298,25 @@ def _default_models() -> ModelsConfig:
 def _load_model_role(name: str, raw: dict) -> ModelRoleConfig:
     defaults = DEFAULT_MODELS_CONFIG[name]
     provider = raw.get("provider", defaults["provider"])
-    if provider not in ("claude", "codex"):
+    allowed = ("claude", "codex") if name == "brain" else (
+        "claude", "codex", "opencode", "antigravity"
+    )
+    if provider not in allowed:
         raise ValueError(
             f"Invalid {name}.provider in {MODELS_PATH}: {provider!r}; "
-            "expected 'claude' or 'codex'"
+            f"expected one of {', '.join(allowed)}"
         )
+
+    external = {}
+    for key in ("opencode", "antigravity"):
+        values = raw.get(key) or {}
+        model = values.get("model", "")
+        variant = values.get("variant", "")
+        if not isinstance(model, str) or not isinstance(variant, str):
+            raise ValueError(f"{name}.{key} model/variant must be strings in {MODELS_PATH}")
+        if provider == key and not model.strip():
+            raise ValueError(f"Set {name}.{key}.model in {MODELS_PATH}")
+        external[key] = ExternalModelConfig(model=model, variant=variant)
 
     claude = {**defaults["claude"], **(raw.get("claude") or {})}
     codex = {**defaults["codex"], **(raw.get("codex") or {})}
@@ -297,6 +330,7 @@ def _load_model_role(name: str, raw: dict) -> ModelRoleConfig:
 
     return ModelRoleConfig(
         provider=provider,
+        **external,
         claude=ClaudeModelConfig(model=str(claude["model"])),
         codex=CodexModelConfig(
             model=str(codex["model"]),

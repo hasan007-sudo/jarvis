@@ -7,6 +7,10 @@ from ..config import Config
 
 def create_orchestrator(cfg: Config, io):
     provider = cfg.models.orchestrator.provider
+    if provider in ("opencode", "antigravity"):
+        from .external import ExternalOrchestrator
+
+        return ExternalOrchestrator(cfg, io)
     if provider == "codex":
         from .codex import CodexOrchestrator
 
@@ -21,4 +25,3 @@ def create_orchestrator(cfg: Config, io):
             ) from exc
         return ClaudeOrchestrator(cfg, io)
     raise ValueError(f"Unknown orchestrator provider: {provider!r}")
-

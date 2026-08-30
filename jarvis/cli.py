@@ -36,7 +36,7 @@ def main() -> None:
     brain = sub.add_parser("brain", help="show or set the default worker platform")
     brain.add_argument("name", nargs="?", choices=["claude", "codex"])
     orchestrator = sub.add_parser("orchestrator", help="show or set the conversation provider")
-    orchestrator.add_argument("name", nargs="?", choices=["claude", "codex"])
+    orchestrator.add_argument("name", nargs="?", choices=["claude", "codex", "opencode", "antigravity"])
     provider = sub.add_parser("provider", help="set orchestrator, worker, and sync together")
     provider.add_argument("name", choices=["claude", "codex"])
     project = sub.add_parser("project", help="list or register projects")
@@ -224,7 +224,7 @@ def _install_daemon() -> None:
     jarvis_bin = shutil.which("jarvis") or sys.argv[0]
     provider_dirs = {
         str(Path(binary).parent)
-        for name in ("claude", "codex")
+        for name in ("claude", "codex", "opencode", "agy")
         if (binary := shutil.which(name))
     }
     path_env = ":".join(sorted(provider_dirs) + [

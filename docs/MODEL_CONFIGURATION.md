@@ -1,16 +1,21 @@
 # Model configuration
 
-Jarvis uses Claude and Codex in three distinct roles:
+For cross-machine installation, native model/tool checks, restart verification,
+and the dated AGY handoff, read [Provider setup](PROVIDER_SETUP.md).
+
+Jarvis configures AI providers independently for three roles:
 
 ```text
-User ↔ Jarvis orchestrator (Claude Agent SDK or Codex app-server)
+User ↔ Jarvis orchestrator (Claude, Codex, or OpenCode native adapter)
               ├─ delegated task → brain provider (Claude or Codex)
-              └─ history distillation → sync provider (Claude or Codex)
+              └─ history distillation → sync provider (Claude, Codex, or OpenCode)
 ```
 
 The orchestrator, delegated workers, and history sync are independently
-configurable in `~/.jarvis/models.yaml`. Claude and Codex use separate native
-adapters; Codex is not run inside Claude Agent SDK.
+configurable in `~/.jarvis/models.yaml`. Each conversation provider uses its own
+native adapter; Codex and OpenCode are not run inside Claude Agent SDK.
+Antigravity configuration keys are reserved, but execution is unavailable until
+native CLI tool isolation is verified. The CLI refuses to switch to Antigravity.
 
 ## Quick setup
 
@@ -158,7 +163,74 @@ the existing Codex `auth.json`; user MCP servers and plugins are not loaded.
 Codex dynamic tools are currently an experimental app-server capability, so
 all protocol handling is isolated in `jarvis/orchestration/codex.py`.
 
-## Other configuration
+## OpenCode and Antigravity
+
+OpenCode is available for conversations and independent history distillation.
+Delegated workers remain Claude or Codex: `jarvis brain` and `jarvis provider`
+reject other providers, because those commands would change the worker role.
+Existing Claude/Codex settings and defaults are unchanged.
+
+Set an explicit model before selecting either new provider. Model identifiers
+are passed through unchanged; Jarvis does not maintain a model catalog or guess
+an account's default model. For example, replace the placeholders below with
+models available in your authenticated OpenCode installation:
+
+```yaml
+orchestrator:
+  provider: opencode
+  opencode:
+    model: YOUR_PROVIDER/YOUR_MODEL
+    variant: ""  # optional provider-specific variant
+sync:
+  provider: opencode
+  opencode:
+    model: YOUR_PROVIDER/YOUR_MODEL
+```
+
+Then use `jarvis orchestrator opencode`; restart a running daemon yourself to
+apply changes. `opencode_bin` and `agy_bin` belong in `config.yaml`, and may be
+absolute executable paths. Authenticate with the provider's normal CLI first.
+Jarvis never changes provider credentials or the user's global provider config.
+
+OpenCode uses the v1 `run --format json` protocol (developed against 1.18.25).
+OpenCode v2 is not validated. Its native MCP client connects to one authenticated
+loopback HTTP server inside Jarvis, which calls the same shared tools and task
+manager as the existing adapters. All other tools are denied. Each conversation
+keeps an explicit OpenCode session ID across turns; a new Jarvis process starts a
+fresh conversation. Only assistant text reaches speech output. Processes time out
+after 240 seconds and are terminated on cancellation; raw diagnostics, reasoning,
+tool events, and credential-bearing config are never spoken or logged by Jarvis.
+
+Each runtime uses a temporary workspace and isolated OpenCode user configuration,
+with external plugins disabled. Normal provider data/authentication remains in
+place. Custom provider definitions and authentication plugins from user config
+are not imported. Organization-managed configuration may take precedence over
+runtime settings; such managed installations require separate policy verification.
+Sync runs without MCP tools and without resuming any conversation. OpenCode may
+retain its own native session record; Jarvis currently imports only Claude/Codex
+history, so these runs are not reimported by `jarvis sync`.
+
+Antigravity accepts `provider: antigravity` and an explicit
+`antigravity.model`, but execution currently fails closed with a clear error.
+On CLI 1.1.22, explicitly registering the disposable project fixed custom-agent
+discovery. The default CLI project had silently fallen back to its default
+agent. Initialization still echoes the requested name and lists a broad tool
+registry, so neither field proves effective permissions.
+
+The discovered agent refused a disposable native write, but the positive MCP
+round trip remains blocked by a project-scoped permission grant. A denied MCP
+call even produced a final `SUCCESS` with empty text. See
+[the AGY enablement gate](PROVIDER_SETUP.md#agy-investigation-and-enablement-gate)
+for evidence and the manual next step. Jarvis does not send AGY user prompts
+or transcripts until the integration is verified. `--sandbox` alone is not a
+read-only tool boundary; do not rewrite global permissions to work around this.
+
+Protocol references: [OpenCode config](https://opencode.ai/docs/config/),
+[permissions](https://opencode.ai/docs/permissions/),
+[MCP](https://opencode.ai/docs/mcp-servers/), and
+[Antigravity headless](https://antigravity.google/docs/cli/headless/).
+
+## Other application configuration
 
 `~/.jarvis/config.yaml` continues to hold non-model settings, including
 `codex_bin`, voice configuration, projects, and the second-brain vault.
