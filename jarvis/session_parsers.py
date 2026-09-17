@@ -12,7 +12,7 @@ from pathlib import Path
 
 @dataclass
 class SessionDoc:
-    source: str  # claude | codex
+    source: str  # claude | codex | omp
     sid: str
     path: Path
     cwd: str
@@ -68,6 +68,31 @@ def parse_codex(path: Path) -> SessionDoc | None:
         turns=turns,
     )
 
+
+def parse_omp(path: Path) -> SessionDoc | None:
+    turns, cwd, sid, first_ts = [], "", path.stem.split("_")[-1], None
+    for obj in _jsonl(path):
+        first_ts = first_ts or obj.get("timestamp")
+        if obj.get("type") == "session":
+            cwd = obj.get("cwd") or cwd
+            sid = obj.get("id") or sid
+        elif obj.get("type") == "message":
+            message = obj.get("message") or {}
+            role, content = message.get("role"), message.get("content")
+            if role in ("user", "assistant"):
+                for text in _texts(content):
+                    turns.append((role, text))
+    if not turns:
+        return None
+    return SessionDoc(
+        source="omp",
+        sid=str(sid),
+        path=path,
+        cwd=cwd,
+        project=_project_name(cwd),
+        date=_date(first_ts, path),
+        turns=turns,
+    )
 
 def _fingerprint(path: Path) -> str:
     digest = hashlib.sha256()

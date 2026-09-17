@@ -36,10 +36,12 @@ from .session_parsers import (
     _section,
     parse_claude,
     parse_codex,
+    parse_omp,
 )
 
 CLAUDE_PROJECTS = Path.home() / ".claude/projects"
 CODEX_SESSIONS = Path.home() / ".codex/sessions"
+OMP_SESSIONS = Path.home() / ".omp/agent/sessions"
 STATE_VERSION = 2
 
 DISTILL_PROMPT = """You are distilling a coding-assistant session transcript into a permanent \
@@ -124,7 +126,14 @@ class SecondBrain:
                 break
             key = str(path)
             fingerprint = _fingerprint(path)
-            doc = parse_claude(path) if source == "claude" else parse_codex(path)
+            if source == "claude":
+                doc = parse_claude(path)
+            elif source == "codex":
+                doc = parse_codex(path)
+            elif source == "omp":
+                doc = parse_omp(path)
+            else:
+                doc = None
             if doc is None or self._should_skip(doc):
                 state["processed"][key] = {
                     "status": "skipped",
@@ -196,6 +205,12 @@ class SecondBrain:
             for f in CODEX_SESSIONS.rglob("rollout-*.jsonl"):
                 if unprocessed(f):
                     found.append((f.stat().st_mtime, f, "codex"))
+        if OMP_SESSIONS.is_dir():
+            for f in OMP_SESSIONS.glob("*/*.jsonl"):
+                if "second-brain" in f.parent.name:
+                    continue
+                if unprocessed(f):
+                    found.append((f.stat().st_mtime, f, "omp"))
         found.sort(reverse=True)  # newest first
         return [(f, source) for _, f, source in found]
 
@@ -221,16 +236,19 @@ class SecondBrain:
         transcript = _condense(doc.turns)
         sync = self.cfg.models.sync
         if sync.provider == "antigravity":
-            raise RuntimeError("Antigravity is unavailable: native CLI tool isolation is not verified")
-        if sync.provider == "opencode":
+            model = sync.antigravity.model or "gemini-3.8-flash-high"
+            cmd = [self.cfg.agy_bin, "--model", model, "-p", f"{DISTILL_PROMPT}\n\nTRANSCRIPT:\n{transcript}"]
+            input_text = None
+        elif sync.provider == "opencode":
             from .orchestration.external import run_sync
 
             try:
                 return _parse_distilled(run_sync(self.cfg, DISTILL_PROMPT, transcript))
             except (RuntimeError, TimeoutError, OSError):
                 return None
-        if sync.provider == "claude":
+        elif sync.provider == "claude":
             cmd = ["claude", "-p", "--model", sync.claude.model, DISTILL_PROMPT]
+            input_text = transcript
         elif sync.provider == "codex":
             codex = sync.codex
             cmd = [
@@ -252,12 +270,13 @@ class SecondBrain:
             if codex.ignore_rules:
                 cmd.append("--ignore-rules")
             cmd.append(DISTILL_PROMPT)
+            input_text = transcript
         else:
             raise ValueError(f"Unknown sync provider: {sync.provider!r}")
         try:
             out = subprocess.run(
                 cmd,
-                input=transcript,
+                input=input_text,
                 capture_output=True,
                 text=True,
                 timeout=240,
@@ -274,7 +293,7 @@ class SecondBrain:
         directory = self.vault / "sessions" / year / month
         directory.mkdir(parents=True, exist_ok=True)
         fname = f"{day}-{doc.project}-{doc.source}-{doc.sid}-{fingerprint[:16]}.md"
-        tags = ", ".join(["session"] + note["tags"])
+        tags = ", ".join(t for t in note["tags"] if t.lower() != "session")
         content = (
             f"---\n"
             f"project: {doc.project}\n"

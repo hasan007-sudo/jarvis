@@ -217,11 +217,13 @@ discovery. The default CLI project had silently fallen back to its default
 agent. Initialization still echoes the requested name and lists a broad tool
 registry, so neither field proves effective permissions.
 
-The discovered agent refused a disposable native write, but the positive MCP
-round trip remains blocked by a project-scoped permission grant. A denied MCP
-call even produced a final `SUCCESS` with empty text. See
+After the user added a project-scoped grant on 2026-08-31, the discovered agent
+completed a native MCP stub call and retained its result across a resumed turn.
+A disposable native write remained unavailable; a separate tool-free JSON reply
+also passed. These probes do not verify the complete production adapter. A denied
+MCP call previously produced a final `SUCCESS` with empty text. See
 [the AGY enablement gate](PROVIDER_SETUP.md#agy-investigation-and-enablement-gate)
-for evidence and the manual next step. Jarvis does not send AGY user prompts
+for evidence and the remaining checks. Jarvis does not send AGY user prompts
 or transcripts until the integration is verified. `--sandbox` alone is not a
 read-only tool boundary; do not rewrite global permissions to work around this.
 

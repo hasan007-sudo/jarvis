@@ -47,8 +47,8 @@ def make_session(cfg, role, workspace, system_prompt, bridge=None):
         env["OPENCODE_CONFIG_CONTENT"] = json.dumps(content)
         return OpenCodeSession(cfg.opencode_bin, settings, workspace, env)
     if provider == "antigravity":
-        # Discovery needs a registered project; a permitted MCP round trip is
-        # still unverified. Keep the guard until the documented checks pass.
+        # The disposable project's MCP probe passed; production setup and full
+        # tool isolation remain unverified. Keep the documented enablement guard.
         raise RuntimeError(
             "Antigravity is configured but unavailable: CLI tool isolation is not verified. "
             "Keep the current orchestrator/sync provider until a safe adapter is supported."

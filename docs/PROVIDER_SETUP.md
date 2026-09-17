@@ -205,9 +205,27 @@ Verified on CLI 1.1.22:
    `call_mcp_tool` for `jarvis/probe_echo`. The permission engine denied
    `mcp(jarvis/probe_echo)`. The final result nevertheless reported
    `status: SUCCESS` with empty text: inspect tool failures, not just final status.
-6. The supported permissions TUI rendered blank in the automation PTY, including
-   resized/compatibility attempts. No project, Shared, or Global grants were
-   changed; the positive MCP round trip is still unverified.
+6. The supported permissions TUI rendered blank in the automation PTY. The user
+   subsequently added only `mcp(jarvis/probe_echo)` to the disposable project's
+   allowlist; the 2026-08-31 verification below supersedes the permission blocker.
+
+Verified on 2026-08-31 with `gemini-3.5-flash-medium`:
+
+- The grant was present in the correct project record, but headless `/permissions`
+  omitted it. That listing alone is not reliable proof of effective project grants.
+- Native `call_mcp_tool` completed with `JARVIS_MCP_PROBE_OK_87291` in its tool
+  output and final response. This is a positive round trip, not just exit status.
+- Resuming the explicit conversation ID recalled that token without another MCP
+  call. The same agent reported `WRITE_TOOL_UNAVAILABLE` for a native marker write;
+  no marker existed afterward. This is not a formal permission-denial event.
+- A separate `jarvis-isolation` run returned exactly `{"ready":true}` (apart from
+  a trailing newline), without tool calls. It is a formatting smoke check, not
+  proof that transcript injection cannot reach tools.
+- The first MCP reply added unrequested timestamps. Their source is unresolved;
+  do not blindly strip arbitrary reply lines or claim voice/sync formatting robust.
+- Evidence logs: `granted-mcp-roundtrip.log`, `granted-isolation-continuity.log`,
+  and `tool-free-format.log` in the disposable workspace. No real Jarvis tool,
+  transcript, provider switch, or daemon restart was exercised.
 
 A reproducible discovery check, run from a disposable workspace containing the
 agent definition:
@@ -227,7 +245,10 @@ See [AGY agents](https://antigravity.google/docs/cli/commands/agents/),
 [projects](https://antigravity.google/docs/cli/projects/), and
 [permission scopes](https://antigravity.google/docs/cli/commands/permissions/).
 
-### Current manual unblock
+### Reproducing the scoped grant
+
+This step was completed by the user on the investigation Mac on 2026-08-31.
+Do not add duplicate grants or repeat it as an unresolved blocker.
 
 On the investigation Mac only, open this in a real terminal:
 
