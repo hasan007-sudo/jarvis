@@ -168,7 +168,8 @@ def _parse_distilled(raw: str) -> dict | None:
     title = re.search(r"^TITLE:\s*(.+)$", raw, re.M)
     tldr = re.search(r"^TLDR:\s*(.+)$", raw, re.M)
     tags = re.search(r"^TAGS:\s*(.+)$", raw, re.M)
-    body_at = raw.find("## Decisions")
+    task = re.search(r"^## Task 1:\s*.+$", raw, re.M)
+    body_at = task.start() if task else raw.find("## Decisions")
     if not title or body_at == -1:
         return None
     return {
@@ -185,9 +186,14 @@ def _first_heading(text: str) -> str:
 
 
 def _section(text: str, name: str) -> list[str]:
-    match = re.search(rf"## {name}\n(.*?)(?=\n## |\nProject: |\Z)", text, re.S)
-    if not match:
-        return []
-    bullets = [b.strip()[2:].strip() for b in match.group(1).strip().splitlines()
-               if b.strip().startswith("- ")]
+    pattern = re.compile(
+        rf"^#{{2,3}} {re.escape(name)}\s*$\n(.*?)(?=^#{{2,3}} |\Z)",
+        re.M | re.S,
+    )
+    bullets = [
+        line.strip()[2:].strip()
+        for match in pattern.finditer(text)
+        for line in match.group(1).splitlines()
+        if line.strip().startswith("- ")
+    ]
     return [b for b in bullets if b and b.lower() != "none"]

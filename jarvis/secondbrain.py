@@ -3,7 +3,7 @@
 Design (Karpathy LLM-wiki + OpenClaw memory pattern):
 - Raw transcripts stay immutable in ~/.claude/projects and ~/.codex/sessions.
 - Each session is distilled ONCE (via the configured sync provider) into a permanent
-  note: TL;DR, decisions, problems & solutions, questions, follow-ups.
+  note with separate task sections for distinct user objectives.
 - Mechanical compilation layers on top: per-project wiki pages, daily
   digests, and INDEX.md for progressive disclosure by agents.
 - Sync is incremental (state in .brain/state.json), batched, and commits
@@ -53,19 +53,36 @@ TITLE: <concise 4-8 word title>
 TAGS: <2-4 lowercase comma-separated tags>
 TLDR: <1-2 sentences: what was done and the outcome>
 
-## Decisions
-- <each technical/architectural decision made, and WHY; write '- none' if none>
+## Task 1: <concise description of the first distinct user objective>
+Outcome: <success, partial, blocked, or informational>
 
-## Problems & Solutions
-- <each specific problem hit and how it was (or must be) solved; '- none' if none>
+### Preference signals
+- <user constraints or corrections that should guide future work>
 
-## Questions Asked
-- <notable questions the user asked — his interests and unknowns; '- none' if none>
+### Decisions
+- <technical or architectural decisions and why they were made>
 
-## Follow-ups
-- <open threads, unfinished work, things to revisit; '- none' if none>
+### Problems & Solutions
+- <specific problems and how they were or must be solved>
 
-Omit pleasantries and routine tool chatter. The transcript follows."""
+### Questions Asked
+- <notable questions the user asked, including unresolved unknowns>
+
+### Key steps
+- <important investigation or implementation steps>
+
+### Validation
+- <checks performed and their results, including what was not tested>
+
+### Follow-ups
+- <open threads, unfinished work, or things to revisit>
+
+Repeat as `## Task 2: ...`, `## Task 3: ...`, and so on for every distinct user \
+objective in the session. A task can span many turns; do not turn routine implementation \
+steps or tool calls into separate tasks. Keep decisions, problems and solutions, questions, \
+preferences, steps, validation, and follow-ups under the task they belong to. Omit any \
+per-task subsection that has no transcript-supported content. Never invent missing metadata \
+or validation. Omit pleasantries and routine tool chatter. The transcript follows."""
 
 HOME_MD = """# Second Brain
 
