@@ -28,6 +28,7 @@ def main() -> None:
     sub.add_parser("setup-voice", help="install whisper.cpp and download the STT model")
     sync = sub.add_parser("sync", help="distill new Claude/Codex sessions into the second brain")
     sync.add_argument("--max", type=int, default=None, help="max sessions this run")
+    sync.add_argument("--workers", type=int, default=1, help="parallel distillation workers")
     sub.add_parser("install-sync", help="install the daily second-brain sync (launchd)")
     sub.add_parser("daemon", help="run the always-on hotkey voice daemon (foreground)")
     sub.add_parser("install-daemon", help="install the daemon as a launchd service (starts at login)")
@@ -71,7 +72,7 @@ def main() -> None:
     elif command == "project":
         _project(args)
     elif command == "sync":
-        _sync(args.max)
+        _sync(args.max, args.workers)
     elif command == "install-sync":
         _install_sync()
     elif command == "daemon":
@@ -163,12 +164,17 @@ def _project(args) -> None:
         print(f"{name:20} {path}")
 
 
-def _sync(max_sessions: int | None) -> None:
+def _sync(max_sessions: int | None, workers: int = 1) -> None:
     from .secondbrain import SecondBrain
 
     cfg = Config.load()
     brain = SecondBrain(cfg)
-    print(brain.sync(max_sessions=max_sessions or cfg.second_brain.batch))
+    print(
+        brain.sync(
+            max_sessions=max_sessions or cfg.second_brain.batch,
+            workers=max(workers, 1),
+        )
+    )
 
 
 def _notes(args) -> None:

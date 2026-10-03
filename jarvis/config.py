@@ -127,6 +127,7 @@ class CodexModelConfig:
     skip_git_repo_check: bool
     ignore_user_config: bool
     ignore_rules: bool
+    reasoning_effort: str = ""
 
 
 @dataclass
@@ -339,5 +340,6 @@ def _load_model_role(name: str, raw: dict) -> ModelRoleConfig:
             skip_git_repo_check=bool(codex["skip_git_repo_check"]),
             ignore_user_config=bool(codex["ignore_user_config"]),
             ignore_rules=bool(codex["ignore_rules"]),
+            reasoning_effort=str(codex.get("reasoning_effort", "")),
         ),
     )

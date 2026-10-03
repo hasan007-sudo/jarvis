@@ -150,6 +150,22 @@ def _date(ts: str | None, path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d")
 
 
+REDACTED = "[REDACTED]"
+
+# key = value, where the key contains a credential word (AWS_SECRET_ACCESS_KEY, DB_PASSWORD)
+_SECRET_ASSIGN = re.compile(
+    r"(?i)\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|api[-_]?key|apikey"
+    r"|access[-_]?key|access[-_]?token|auth[-_ ]?token|token|credential|authorization)"
+    r"[A-Za-z0-9_.-]*)"
+    r"(\s*[:=]\s*)"
+    r"(\"[^\"\n]+\"|'[^'\n]+'|[^\s,;)\]}\[.,]{6,})"
+)
+# Authorization: Bearer <jwt>
+_SECRET_BEARER = re.compile(r"(?i)\b(authorization\s*:\s*)bearer\s+([A-Za-z0-9._\-]{8,})")
+# (`someone@example.com` / `SomePassword1!`) — how credentials often appear in prose
+_SECRET_PAIR = re.compile(r"(`[^`\n]*@[A-Za-z0-9.\-]+`\s*/\s*`)[^`\n]+(`)")
+
+
 def _condense(turns: list[tuple[str, str]], per_msg: int = 1200, cap: int = 60000) -> str:
     parts, total = [], 0
     for role, text in turns:
@@ -164,6 +180,13 @@ def _condense(turns: list[tuple[str, str]], per_msg: int = 1200, cap: int = 6000
     return "\n\n".join(parts)
 
 
+def _redact(text: str) -> str:
+    """Mask credentials a distilled note would otherwise commit and push verbatim."""
+    text = _SECRET_BEARER.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
+    text = _SECRET_ASSIGN.sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}", text)
+    return _SECRET_PAIR.sub(lambda m: f"{m.group(1)}{REDACTED}{m.group(2)}", text)
+
+
 def _parse_distilled(raw: str) -> dict | None:
     title = re.search(r"^TITLE:\s*(.+)$", raw, re.M)
     tldr = re.search(r"^TLDR:\s*(.+)$", raw, re.M)
@@ -173,10 +196,10 @@ def _parse_distilled(raw: str) -> dict | None:
     if not title or body_at == -1:
         return None
     return {
-        "title": title.group(1).strip(),
-        "tldr": tldr.group(1).strip() if tldr else "",
+        "title": _redact(title.group(1).strip()),
+        "tldr": _redact(tldr.group(1).strip()) if tldr else "",
         "tags": [t.strip() for t in tags.group(1).split(",")][:4] if tags else [],
-        "body": raw[body_at:].strip(),
+        "body": _redact(raw[body_at:].strip()),
     }
 
 

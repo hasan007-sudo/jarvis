@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -127,7 +128,29 @@ class SecondBrain:
         self.state_path.write_text(json.dumps(state, indent=1))
 
     # ------------------------------------------------------------- sync --
-    def sync(self, max_sessions: int = 12, log=print) -> str:
+    def _distill_one(self, path: Path, source: str) -> tuple[str, str, str, Path | None]:
+        """Parse, distill and write one note. Meant to run off the main thread.
+
+        Deliberately touches no shared state: the caller owns .brain/state.json,
+        so concurrent workers cannot lose each other's bookkeeping. Returns
+        (status, project, date, note_path).
+        """
+        if source == "claude":
+            doc = parse_claude(path)
+        elif source == "codex":
+            doc = parse_codex(path)
+        elif source == "omp":
+            doc = parse_omp(path)
+        else:
+            doc = None
+        if doc is None or self._should_skip(doc):
+            return "skipped", "", "", None
+        note = self.distill(doc)
+        if note is None:
+            return "failed", doc.project, doc.date, None
+        return "done", doc.project, doc.date, self._write_note(doc, note, _fingerprint(path))
+
+    def sync(self, max_sessions: int = 12, log=print, workers: int = 1) -> str:
         self.ensure_vault()
         state = self._state()
         if state.get("version") != STATE_VERSION:
@@ -138,52 +161,45 @@ class SecondBrain:
         log(f"{len(candidates)} unprocessed session file(s); distilling up to {max_sessions}.")
 
         done, skipped, touched_projects, touched_dates = 0, 0, set(), set()
-        for path, source in candidates:
-            if done >= max_sessions:
-                break
-            key = str(path)
-            fingerprint = _fingerprint(path)
-            if source == "claude":
-                doc = parse_claude(path)
-            elif source == "codex":
-                doc = parse_codex(path)
-            elif source == "omp":
-                doc = parse_omp(path)
-            else:
-                doc = None
-            if doc is None or self._should_skip(doc):
-                state["processed"][key] = {
-                    "status": "skipped",
-                    "filename": path.name,
-                    "fingerprint": fingerprint,
-                }
-                skipped += 1
-                continue
-            log(f"  distilling {source}:{doc.project} {doc.date} ({doc.sid[:8]})")
-            note = self.distill(doc)
-            if note is None:
-                state["processed"][key] = {
-                    "status": "failed",
-                    "filename": path.name,
-                    "fingerprint": fingerprint,
-                }
-                skipped += 1
-                continue
-            previous = state["processed"].get(key, {})
-            rel = self._write_note(doc, note, fingerprint)
-            previous_note = previous.get("note")
-            if previous_note and previous_note != str(rel):
-                (self.vault / previous_note).unlink(missing_ok=True)
-            state["processed"][key] = {
-                "status": "done",
-                "filename": path.name,
-                "fingerprint": fingerprint,
-                "note": str(rel),
+        # Headroom: skipped/failed candidates do not count toward max_sessions.
+        batch = candidates[: max_sessions + max(workers - 1, 0)]
+        with ThreadPoolExecutor(max_workers=max(workers, 1)) as pool:
+            futures = {
+                pool.submit(self._distill_one, path, source): (path, source)
+                for path, source in batch
             }
-            touched_projects.add(doc.project)
-            touched_dates.add(doc.date)
-            done += 1
-            self._save_state(state)  # survive interruption mid-batch
+            for future in as_completed(futures):
+                path, source = futures[future]
+                key = str(path)
+                fingerprint = _fingerprint(path)
+                try:
+                    status, project, date, rel = future.result()
+                except (OSError, ValueError) as exc:
+                    log(f"  ! {source}:{path.name} raised {exc!r}; marking failed")
+                    status, project, date, rel = "failed", "", "", None
+                if status == "done":
+                    previous = state["processed"].get(key, {})
+                    previous_note = previous.get("note")
+                    if previous_note and previous_note != str(rel):
+                        (self.vault / previous_note).unlink(missing_ok=True)
+                    state["processed"][key] = {
+                        "status": "done",
+                        "filename": path.name,
+                        "fingerprint": fingerprint,
+                        "note": str(rel),
+                    }
+                    touched_projects.add(project)
+                    touched_dates.add(date)
+                    done += 1
+                    log(f"  distilled {source}:{project} {date}")
+                else:
+                    state["processed"][key] = {
+                        "status": status,
+                        "filename": path.name,
+                        "fingerprint": fingerprint,
+                    }
+                    skipped += 1
+                self._save_state(state)  # survive interruption mid-batch
 
         for project in touched_projects:
             self.compile_project(project)
@@ -286,6 +302,8 @@ class SecondBrain:
                 cmd.append("--ignore-user-config")
             if codex.ignore_rules:
                 cmd.append("--ignore-rules")
+            if codex.reasoning_effort:
+                cmd += ["-c", f"model_reasoning_effort={codex.reasoning_effort}"]
             cmd.append(DISTILL_PROMPT)
             input_text = transcript
         else:
