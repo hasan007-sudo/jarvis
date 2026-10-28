@@ -262,7 +262,7 @@ class SecondBrain:
             return True
         user_turns = [t for role, t in doc.turns if role == "user"]
         total = sum(len(t) for _, t in doc.turns)
-        return len(user_turns) < 2 or total < 400
+        return len(user_turns) < 2 or len(doc.turns) <= 4 or total < 400
 
     # ---------------------------------------------------------- distill --
     def distill(self, doc: SessionDoc) -> dict | None:
